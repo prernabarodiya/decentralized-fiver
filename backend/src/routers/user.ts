@@ -45,6 +45,7 @@
 // export default router;
 
 import { Router } from "express";
+console.log("hello ")
 import prismaClient from "../lib/prisma";
 import jwt from "jsonwebtoken";
 
