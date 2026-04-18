@@ -7,14 +7,15 @@ import { S3Client, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { authMiddleware } from "../middleware";
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post'
+import { createTaskInput } from "../types";
 
-
+const DEFAULT_TITLE = "Select the most clickable thumbnail";
 
 
 const router = Router();
 
-const JWT_SECRET = process.env.JWT_SECRET!;
-const WALLET_ADDRESS = process.env.WALLET_ADDRESS!;
+const JWT_SECRET = process.env.JWT_SECRET! ?? "";
+const WALLET_ADDRESS = process.env.WALLET_ADDRESS! ?? "";
 
 const ACCESS_KEY_ID = process.env.ACCESS_KEY_ID!;
 const SECRET_ACCESS_KEY = process.env.SECRET_ACCESS_KEY!;
@@ -35,6 +36,43 @@ const s3Client = new S3Client({
     secretAccessKey: SECRET_ACCESS_KEY
   },
   region: "eu-north-1"
+})
+
+
+router.post("/task", authMiddleware, async(req, res) => {
+  //@ts-ignore
+  const userId = req.userId;
+
+  const body = req.body;
+  const parseData = createTaskInput.safeParse(body);
+
+  if(!parseData.success){
+    return res.status(411).json({
+      message: "You've sent the wrong input"
+    })
+  }
+
+  let respone = await prismaClient.$transaction(async tx => {
+    const respone = await tx.task.create({
+      data: {
+        title: parseData.data.title ?? DEFAULT_TITLE,
+        amount: 1,
+        signature: parseData.data.signature,
+        user_id: userId
+      }
+    });
+
+    // await tx.option.createMany({
+    //   data: parseData.data.options.map(x => ({
+    //     image_url: x.imageUrl,
+    //     task_id: respone.id
+    //   }))
+    // })
+
+    return respone
+
+  })
+
 })
 
 router.get("/presignedUrl", authMiddleware, async (req, res) => {
@@ -64,9 +102,6 @@ router.get("/presignedUrl", authMiddleware, async (req, res) => {
     })
     
 })
-
-
-
 
 
 
