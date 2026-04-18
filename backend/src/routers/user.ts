@@ -8,13 +8,15 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { authMiddleware } from "../middleware";
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post'
 import { createTaskInput } from "../types";
+import { JWT_SECRET } from "../config";
+
 
 const DEFAULT_TITLE = "Select the most clickable thumbnail";
 
 
 const router = Router();
 
-const JWT_SECRET = process.env.JWT_SECRET! ?? "";
+
 const WALLET_ADDRESS = process.env.WALLET_ADDRESS! ?? "";
 
 const ACCESS_KEY_ID = process.env.ACCESS_KEY_ID!;

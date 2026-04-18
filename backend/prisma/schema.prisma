@@ -24,7 +24,7 @@ model Worker {
   id                  Int     @id @default(autoincrement())
   address             String  @unique
   submissions         Submission[]
-  balance_id          Int
+  // balance_id          Int
   pending_amount      Int    // amount in lamports (* 10^9)
   locked_amount       Int
 }
@@ -36,7 +36,7 @@ model Task {
   user_id      Int
   signature    String
   amount       Int
-  //done         Boolean @default(false)
+  done         Boolean @default(false)
   user         User    @relation(fields: [user_id], references: [id])
   submissions  Submission[]
 }
