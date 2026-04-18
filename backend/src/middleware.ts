@@ -6,9 +6,6 @@ const JWT_SECRET = process.env.JWT_SECRET!;
 
 export function authMiddleware(req:Request, res: Response, next: NextFunction){
     const authHeader = req.headers["authorization"] ?? "";
-
-    
-
     try{
         const decoded = jwt.verify(authHeader, JWT_SECRET);
         // @ts-ignore

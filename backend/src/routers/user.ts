@@ -38,6 +38,70 @@ const s3Client = new S3Client({
   region: "eu-north-1"
 })
 
+router.get("/task", authMiddleware, async (req, res) => {
+  //@ts-ignore
+  const taskId: String = req.query.taskId;
+  //@ts-ignore
+  const userId: String = req.userId;
+
+
+  console.log({
+    user_id: Number(userId),
+    id: Number(taskId)
+  })
+
+  const taskDetails = await prismaClient.task.findFirst({
+    where: {
+      user_id: Number(userId),
+      id: Number(taskId)
+    }, 
+    include: {
+      options: true
+    }
+  })
+
+  if(!taskDetails){
+    return res.status(411).json({
+      message: "You don't have access to this task"
+    })
+  }
+
+  const respones = await prismaClient.submission.findMany({
+    where: {
+      task_id: Number(taskId)
+    }, 
+    include: {
+      option: true
+    }
+  });
+
+  const result: Record<string, {
+    count: number;
+    option: {
+      imageUrl: string
+    }
+  }> = {};
+
+  taskDetails.options.forEach(option => {
+    result[option.id] = {
+        count: 1,
+        option: {
+          imageUrl: option.image_url
+        }
+      }
+  })
+
+  respones.forEach(r => {
+    result[r.option_id].count++;
+    
+  });
+
+  res.json({
+    result
+  })
+
+})
+
 router.post("/task", authMiddleware, async(req, res) => {
   //@ts-ignore
   const userId = req.userId;
