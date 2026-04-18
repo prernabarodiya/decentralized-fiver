@@ -38,7 +38,6 @@ const s3Client = new S3Client({
   region: "eu-north-1"
 })
 
-
 router.post("/task", authMiddleware, async(req, res) => {
   //@ts-ignore
   const userId = req.userId;
@@ -62,15 +61,27 @@ router.post("/task", authMiddleware, async(req, res) => {
       }
     });
 
-    // await tx.option.createMany({
-    //   data: parseData.data.options.map(x => ({
-    //     image_url: x.imageUrl,
-    //     task_id: respone.id
-    //   }))
-    // })
+    // console.log(parseData.data.options.map(x => ({
+    //   image_url: x.imageUrl,
+    //   task_id: respone.id
+    // })))
+
+    await tx.option.createMany({
+      data: parseData.data.options.map(x => ({
+        image_url: x.imageUrl,
+        task_id: respone.id
+      }))
+    })
 
     return respone
 
+  }, {
+    timeout: 10000,      // 10 seconds (default is 5000ms)
+    maxWait: 5000        // max time to wait for a connection
+  })
+
+  res.json({
+    id: respone.id
   })
 
 })
@@ -102,8 +113,6 @@ router.get("/presignedUrl", authMiddleware, async (req, res) => {
     })
     
 })
-
-
 
 router.post("/signin", async (req, res) => {
   try {
