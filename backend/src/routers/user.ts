@@ -8,7 +8,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { authMiddleware } from "../middleware";
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post'
 import { createTaskInput } from "../types";
-import { JWT_SECRET } from "../config";
+import { JWT_SECRET, TOTAL_DECIMALS  } from "../config";
 
 
 const DEFAULT_TITLE = "Select the most clickable thumbnail";
@@ -121,7 +121,7 @@ router.post("/task", authMiddleware, async(req, res) => {
     const respone = await tx.task.create({
       data: {
         title: parseData.data.title ?? DEFAULT_TITLE,
-        amount: 1,
+        amount: 1 * TOTAL_DECIMALS,
         signature: parseData.data.signature,
         user_id: userId
       }

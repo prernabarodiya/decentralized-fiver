@@ -2,9 +2,12 @@ import { Router } from "express";
 import prismaClient from "../lib/prisma";
 import jwt from "jsonwebtoken";
 import { workerMiddleware } from "../middleware";
-import { WORKER_JWT_SECRET } from "../config";
+import { WORKER_JWT_SECRET, TOTAL_DECIMALS } from "../config";
 import { getNextTask } from "../db";
+import { createSubmissionInput } from "../types";
 
+
+const TOTAL_SUBMISSIONS = 100;
 
 
 const WALLET_ADDRESS_WORKER = process.env.WALLET_ADDRESS! ?? "";
@@ -13,6 +16,82 @@ const ACCESS_KEY_ID = process.env.ACCESS_KEY_ID!;
 const SECRET_ACCESS_KEY = process.env.SECRET_ACCESS_KEY!;
 
 const router = Router();
+
+
+
+
+router.get("/balance", workerMiddleware, async (req, res) => {
+    // @ts-ignore
+    const userId: string = req.userId;
+
+    const worker = await prismaClient.worker.findFirst({
+        where: {
+            id: Number(userId)
+        }
+    })
+
+    res.json({
+        pendingAmount: worker?.pending_amount,
+        lockedAmount: worker?.pending_amount,
+    })
+})
+
+router.post("/submission", workerMiddleware, async (req, res) => {
+    // @ts-ignore
+    const userId = req.userId;
+    const body = req.body;
+    const parsedBody = createSubmissionInput.safeParse(body);
+
+    if (parsedBody.success) {
+        const task = await getNextTask(Number(userId));
+        if (!task || task?.id !== Number(parsedBody.data.taskId)) {
+            return res.status(411).json({
+                message: "Incorrect task id"
+            })
+        }
+
+        const amount = (Number(task.amount) / TOTAL_SUBMISSIONS).toString();
+//check here
+        const submission = await prismaClient.$transaction(async tx => {
+            const submission = await tx.submission.create({
+                data: {
+                    option_id: Number(parsedBody.data.selection),
+                    worker_id: userId,
+                    task_id: Number(parsedBody.data.taskId),
+                    amount: Number(amount)
+                }
+            })
+
+            await tx.worker.update({
+                where: {
+                    id: userId,
+                },
+                data: {
+                    pending_amount: {
+                        increment: Number(amount)
+                    }
+                }
+            })
+
+            return submission;
+        })
+
+        const nextTask = await getNextTask(Number(userId));
+        res.json({
+            nextTask,
+            amount
+        })
+        
+
+    } else {
+        res.status(411).json({
+            message: "Incorrect inputs"
+        })
+            
+    }
+
+})
+
 
 router.get("/nextTask", workerMiddleware, async (req, res) => {
     // @ts-ignore
