@@ -17,6 +17,57 @@ const SECRET_ACCESS_KEY = process.env.SECRET_ACCESS_KEY!;
 
 const router = Router();
 
+router.post("/payout", workerMiddleware, async (req, res) => {
+    // @ts-ignore
+    const userId: string = req.userId;
+    const worker = await prismaClient.worker.findFirst({
+        where: { id: Number(userId) }
+    })
+
+    if (!worker) {
+        return res.status(403).json({
+            message: "User not found"
+        })
+    }
+
+    const address = worker.address;
+    const txnId = "0x12312312"
+    
+
+
+    // We should add a lock here
+    await prismaClient.$transaction(async tx => {
+        await tx.worker.update({
+            where: {
+                id: Number(userId)
+            },
+            data: {
+                pending_amount: {
+                    decrement: worker.pending_amount
+                },
+                locked_amount: {
+                    increment: worker.pending_amount
+                }
+            }
+        })
+
+        await tx.payouts.create({
+            data: {
+                user_id: Number(userId),
+                amount: worker.pending_amount,
+                status: "Processing",
+                signature: txnId
+            }
+        })
+    })
+
+    res.json({
+        message: "Processing payout",
+        amount: worker.pending_amount
+    })
+
+
+})
 
 
 
