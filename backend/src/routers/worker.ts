@@ -10,7 +10,7 @@ import { createSubmissionInput } from "../types";
 const TOTAL_SUBMISSIONS = 100;
 
 
-const WALLET_ADDRESS_WORKER = process.env.WALLET_ADDRESS! ?? "";
+const WALLET_ADDRESS_WORKER = process.env.WALLET_ADDRESS_WORKER! ?? "";
 
 const ACCESS_KEY_ID = process.env.ACCESS_KEY_ID!;
 const SECRET_ACCESS_KEY = process.env.SECRET_ACCESS_KEY!;
@@ -147,7 +147,7 @@ router.post("/submission", workerMiddleware, async (req, res) => {
 router.get("/nextTask", workerMiddleware, async (req, res) => {
     // @ts-ignore
     const userId: string = req.userId;
-
+    console.log("here i am here &&&&&&&&&&&&&&&&&&&&&&&&&&&&")
     const task = await getNextTask(Number(userId));
 
     if (!task) {
@@ -177,6 +177,7 @@ router.post("/signin", async(req, res) =>{
 
       return res.json({ token });
     }
+
 
     const user = await prismaClient.worker.create({
       data: {

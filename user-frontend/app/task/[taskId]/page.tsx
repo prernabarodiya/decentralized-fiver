@@ -30,6 +30,7 @@ export default function Page({ params: { taskId } }: { params: { taskId: string 
     } | null>(null);
 
     useEffect(() => {
+        
         async function fetchData() {
             try {
                 const data = await getTaskDetails(taskId);
@@ -37,7 +38,7 @@ export default function Page({ params: { taskId } }: { params: { taskId: string 
                 setResult(data?.result || {});
                 setTaskDetails(data?.task || null);
 
-                console.log("task details:", data.task);
+               // console.log("task details:", data.task);
             } catch (err) {
                 console.error(err);
             }
