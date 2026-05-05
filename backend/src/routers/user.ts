@@ -1,4 +1,4 @@
-
+import nacl from "tweetnacl";
 import { Router } from "express";
 console.log("hello ")
 import prismaClient from "../lib/prisma";
@@ -9,6 +9,8 @@ import { authMiddleware } from "../middleware";
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post'
 import { createTaskInput } from "../types";
 import { JWT_SECRET, TOTAL_DECIMALS  } from "../config";
+import { Connection, PublicKey, Transaction } from "@solana/web3.js";
+
 
 
 const DEFAULT_TITLE = "Select the most clickable thumbnail";
@@ -21,6 +23,9 @@ const WALLET_ADDRESS = process.env.WALLET_ADDRESS! ?? "";
 
 const ACCESS_KEY_ID = process.env.ACCESS_KEY_ID!;
 const SECRET_ACCESS_KEY = process.env.SECRET_ACCESS_KEY!;
+const PARENT_WALLET_ADDRESS = "8LiJKH4b16Sy74vdHcgjcawjDPKkoA4NSvGMtpv3r79B";
+
+const connection = new Connection(process.env.RPC_URL!);
 
 
 
@@ -175,53 +180,165 @@ router.get("/task", authMiddleware, async (req, res) => {
 
 // })
 
-router.post("/task", authMiddleware, async(req, res) => {
+router.post("/task", authMiddleware, async (req, res) => {
   //@ts-ignore
   const userId = req.userId;
-
   const body = req.body;
+
   const parseData = createTaskInput.safeParse(body);
 
-  if(!parseData.success){
+  if (!parseData.success) {
     return res.status(411).json({
-      message: "You've sent the wrong input"
-    })
+      message: "Invalid input",
+    });
   }
 
-  let respone = await prismaClient.$transaction(async tx => {
-    const respone = await tx.task.create({
+  const user = await prismaClient.user.findFirst({
+    where: { id: userId },
+  });
+
+  const transaction = await connection.getTransaction(
+    parseData.data.signature,
+    {
+      maxSupportedTransactionVersion: 1,
+    }
+  );
+
+  if (!transaction) {
+    return res.status(411).json({
+      message: "Transaction not found",
+    });
+  }
+
+  const keys = transaction.transaction.message.getAccountKeys();
+
+  const from = keys.get(0)?.toString();
+  const to = keys.get(1)?.toString();
+
+  // ✅ validate sender
+  if (from !== user?.address) {
+    return res.status(411).json({
+      message: "Wrong sender",
+    });
+  }
+
+  // ✅ validate receiver
+  if (to !== PARENT_WALLET_ADDRESS) {
+    return res.status(411).json({
+      message: "Wrong recipient",
+    });
+  }
+
+  // ✅ validate amount
+  const pre = transaction.meta?.preBalances[1] ?? 0;
+  const post = transaction.meta?.postBalances[1] ?? 0;
+
+  if (post - pre !== 100000000) {
+    return res.status(411).json({
+      message: "Incorrect amount",
+    });
+  }
+
+  const response = await prismaClient.$transaction(async (tx) => {
+    const task = await tx.task.create({
       data: {
-        title: parseData.data.title ?? DEFAULT_TITLE,
+        title: parseData.data.title,
         amount: 1 * TOTAL_DECIMALS,
         signature: parseData.data.signature,
-        user_id: userId
-      }
+        user_id: userId,
+      },
     });
 
-    // console.log(parseData.data.options.map(x => ({
-    //   image_url: x.imageUrl,
-    //   task_id: respone.id
-    // })))
-
     await tx.option.createMany({
-      data: parseData.data.options.map(x => ({
+      data: parseData.data.options.map((x) => ({
         image_url: x.imageUrl,
-        task_id: respone.id
-      }))
-    })
+        task_id: task.id,
+      })),
+    });
 
-    return respone
+    return task;
+  });
 
-  }, {
-    timeout: 10000,      // 10 seconds (default is 5000ms)
-    maxWait: 5000        // max time to wait for a connection
-  })
+  res.json({ id: response.id });
+});
 
-  res.json({
-    id: respone.id
-  })
+// router.post("/task", authMiddleware, async(req, res) => {
+//   //@ts-ignore
+//   const userId = req.userId;
 
-})
+//   const body = req.body;
+//   const parseData = createTaskInput.safeParse(body);
+
+//   const user = await prismaClient.user.findFirst({
+//     where: {
+//       id: userId
+//     }
+//   })
+
+//   if(!parseData.success){
+//     return res.status(411).json({
+//       message: "You've sent the wrong input"
+//     })
+//   }
+
+//   const transaction = await connection.getTransaction(parseData.data.signature, {
+//     maxSupportedTransactionVersion: 1
+//   });
+
+//   console.log(transaction);
+
+//   if ((transaction?.meta?.postBalances[1] ?? 0) - (transaction?.meta?.preBalances[1] ?? 0) !== 100000000) {
+//     return res.status(411).json({
+//       message: "Transaction signature/amount incorrect"
+//     })
+//   }
+
+//   if (transaction?.transaction.message.getAccountKeys().get(1)?.toString() !== PARENT_WALLET_ADDRESS) {
+//     return res.status(411).json({
+//       message: "Transaction sent to wrong address"
+//     })
+//   }
+
+//   if (transaction?.transaction.message.getAccountKeys().get(0)?.toString() !== user?.address) {
+//     return res.status(411).json({
+//       message: "Transaction sent to wrong address"
+//     })
+//   }
+
+//   let respone = await prismaClient.$transaction(async tx => {
+//     const respone = await tx.task.create({
+//       data: {
+//         title: parseData.data.title ?? DEFAULT_TITLE,
+//         amount: 1 * TOTAL_DECIMALS,
+//         signature: parseData.data.signature,
+//         user_id: userId
+//       }
+//     });
+
+//     // console.log(parseData.data.options.map(x => ({
+//     //   image_url: x.imageUrl,
+//     //   task_id: respone.id
+//     // })))
+
+//     await tx.option.createMany({
+//       data: parseData.data.options.map(x => ({
+//         image_url: x.imageUrl,
+//         task_id: respone.id
+//       }))
+//     })
+
+//     return respone
+
+//   }, {
+//     timeout: 10000,      // 10 seconds (default is 5000ms)
+//     maxWait: 5000        // max time to wait for a connection
+//   })
+
+//   res.json({
+//     id: respone.id
+//   })
+
+// })
 
 router.get("/presignedUrl", authMiddleware, async (req, res) => {
     // @ts-ignore
@@ -252,10 +369,28 @@ router.get("/presignedUrl", authMiddleware, async (req, res) => {
 })
 
 router.post("/signin", async (req, res) => {
+
+  const { publicKey, signature} = req.body;
+  const signedString = "Sign into Decentralized Fiverr";
+  const message = new TextEncoder().encode("Sign into Decentralized Fiverr");
+
+  const result = nacl.sign.detached.verify(
+    message,
+    new Uint8Array(signature),
+    new PublicKey(publicKey).toBytes(),
+  );
+
+  if (!result) {
+    return res.status(411).json({
+      message: "Incorrect signature"
+    })
+  }
+
+
   try {
     const existingUser = await prismaClient.user.findFirst({
       where: {
-        address: WALLET_ADDRESS,
+        address: publicKey,
       },
     });
 
@@ -270,7 +405,7 @@ router.post("/signin", async (req, res) => {
 
     const user = await prismaClient.user.create({
       data: {
-        address: WALLET_ADDRESS,
+        address: publicKey,
       },
     });
 
