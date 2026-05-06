@@ -9,7 +9,10 @@ import { WORKER_JWT_SECRET, TOTAL_DECIMALS } from "../config";
 import { getNextTask } from "../db";
 import { createSubmissionInput } from "../types";
 import { Connection, Keypair, PublicKey, SystemProgram, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
+import { privateKey } from "../privateKey";
+import { decode } from "bs58";
 
+const connection = new Connection(process.env.RPC_URL!);
 
 const TOTAL_SUBMISSIONS = 100;
 
@@ -21,58 +24,182 @@ const SECRET_ACCESS_KEY = process.env.SECRET_ACCESS_KEY!;
 
 const router = Router();
 
-router.post("/payout", workerMiddleware, async (req, res) => {
-    // @ts-ignore
-    const userId: string = req.userId;
-    const worker = await prismaClient.worker.findFirst({
-        where: { id: Number(userId) }
-    })
+// router.post("/payout", workerMiddleware, async (req, res) => {
+//     // @ts-ignore
+//     const userId: string = req.userId;
+//     const worker = await prismaClient.worker.findFirst({
+//         where: { id: Number(userId) }
+//     })
 
-    if (!worker) {
-        return res.status(403).json({
-            message: "User not found"
-        })
-    }
+//     if (!worker) {
+//         return res.status(403).json({
+//             message: "User not found"
+//         })
+//     }
 
-    const address = worker.address;
-    const txnId = "0x12312312"
+//     const transaction = new Transaction().add(
+//         SystemProgram.transfer({
+//             fromPubkey: new PublicKey("8LiJKH4b16Sy74vdHcgjcawjDPKkoA4NSvGMtpv3r79B"),
+//             toPubkey: new PublicKey(worker.address),
+//             lamports: 1000_000_000 * worker.pending_amount / TOTAL_DECIMALS,
+//         })
+//     );
+
+//     // const address = worker.address;
+//     // const txnId = "0x12312312"
+
+//     console.log(worker.address);
+
+//     const keypair = Keypair.fromSecretKey(decode(privateKey));
+
+//     const signature = await sendAndConfirmTransaction(
+//             connection,
+//             transaction,
+//             [keypair],
+//         );
+//         console.log("*******************************************************")
+//         console.log(transaction);
+//         console.log(signature);
     
 
 
-    // We should add a lock here
-    await prismaClient.$transaction(async tx => {
-        await tx.worker.update({
-            where: {
-                id: Number(userId)
-            },
-            data: {
-                pending_amount: {
-                    decrement: worker.pending_amount
-                },
-                locked_amount: {
-                    increment: worker.pending_amount
-                }
-            }
-        })
+//     // We should add a lock here
+//     await prismaClient.$transaction(async tx => {
+//         await tx.worker.update({
+//             where: {
+//                 id: Number(userId)
+//             },
+//             data: {
+//                 pending_amount: {
+//                     decrement: worker.pending_amount
+//                 },
+//                 locked_amount: {
+//                     increment: worker.pending_amount
+//                 }
+//             }
+//         })
 
-        await tx.payouts.create({
-            data: {
-                user_id: Number(userId),
-                amount: worker.pending_amount,
-                status: "Processing",
-                signature: txnId
-            }
-        })
-    })
+//         await tx.payouts.create({
+//             data: {
+//                 user_id: Number(userId),
+//                 amount: worker.pending_amount,
+//                 status: "Processing",
+//                 signature: signature
+//             }
+//         })
+//     })
 
-    res.json({
-        message: "Processing payout",
-        amount: worker.pending_amount
-    })
+//     res.json({
+//         message: "Processing payout",
+//         amount: worker.pending_amount
+//     })
 
 
-})
+// })
 
+router.post("/payout", workerMiddleware, async (req, res) => {
+  // @ts-ignore
+  const userId: string = req.userId;
+
+  try {
+    // 1️⃣ Get worker
+    const worker = await prismaClient.worker.findUnique({
+      where: { id: Number(userId) }
+    });
+
+    if (!worker) {
+      return res.status(403).json({
+        message: "User not found"
+      });
+    }
+
+    if (worker.pending_amount === 0) {
+      return res.json({
+        message: "No funds to withdraw",
+        amount: 0
+      });
+    }
+
+    const amountToPay = worker.pending_amount;
+
+    // 2️⃣ 🔒 LOCK FUNDS FIRST (VERY IMPORTANT)
+    await prismaClient.worker.update({
+      where: { id: worker.id },
+      data: {
+        pending_amount: {
+          decrement: amountToPay
+        },
+        locked_amount: {
+          increment: amountToPay
+        }
+      }
+    });
+
+    // 3️⃣ Create transaction
+    const transaction = new Transaction().add(
+      SystemProgram.transfer({
+        fromPubkey: new PublicKey("8LiJKH4b16Sy74vdHcgjcawjDPKkoA4NSvGMtpv3r79B"),
+        toPubkey: new PublicKey(worker.address),
+        lamports: Math.floor(
+          (amountToPay * 1_000_000_000) / TOTAL_DECIMALS
+        ),
+      })
+    );
+
+    const keypair = Keypair.fromSecretKey(decode(privateKey));
+
+    let signature = "";
+
+    // 4️⃣ 💸 SEND MONEY
+    try {
+      signature = await sendAndConfirmTransaction(
+        connection,
+        transaction,
+        [keypair]
+      );
+    } catch (err) {
+      console.error("Blockchain tx failed:", err);
+
+      // 🔁 ROLLBACK if blockchain fails
+      await prismaClient.worker.update({
+        where: { id: worker.id },
+        data: {
+          pending_amount: {
+            increment: amountToPay
+          },
+          locked_amount: {
+            decrement: amountToPay
+          }
+        }
+      });
+
+      return res.status(500).json({
+        message: "Transaction failed"
+      });
+    }
+
+    // 5️⃣ Save payout record (NO TRANSACTION NEEDED)
+    await prismaClient.payouts.create({
+      data: {
+        user_id: Number(userId), // ok since you're assuming same account
+        amount: amountToPay,
+        status: "Processing",
+        signature
+      }
+    });
+
+    return res.json({
+      message: "Processing payout",
+      amount: amountToPay
+    });
+
+  } catch (error) {
+    console.error("Payout error:", error);
+    return res.status(500).json({
+      message: "Internal server error"
+    });
+  }
+});
 
 
 router.get("/balance", workerMiddleware, async (req, res) => {
@@ -277,7 +404,10 @@ router.post("/signin", async(req, res) =>{
         WORKER_JWT_SECRET
       );
 
-      return res.json({ token });
+      return res.json({ 
+        token,
+        amount: existingUser.pending_amount / TOTAL_DECIMALS 
+    });
     }
 
 
@@ -294,7 +424,10 @@ router.post("/signin", async(req, res) =>{
       WORKER_JWT_SECRET
     );
 
-    res.json({ token });
+    res.json({ 
+        token,
+        amount:0
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({
